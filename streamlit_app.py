@@ -31,7 +31,7 @@ def load_cat_to_name():
         with open(json_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        st.warning(f"cat_to_name.json 로드 실패: {e}")
+        st.error(f"cat_to_name.json 로드 실패: {e}")
         return {}
 
 model = load_model()
@@ -74,7 +74,7 @@ def coin_to_krw(class_str_id: str) -> float:
     return parse_face_value(parts[0]) * rate
 
 # ─── 동전 검출 (원형도 필터) ──────────────────────────────────────────────────
-def detect_coin_circles(th, min_radius=35, circularity_thresh=0.7):
+def detect_coin_circles(th, min_radius=25, circularity_thresh=0.6):
     contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     circles = []
     for c in contours:
@@ -91,14 +91,33 @@ def detect_coin_circles(th, min_radius=35, circularity_thresh=0.7):
     return circles
 
 # ─── 메인 추론 함수 ───────────────────────────────────────────────────────────
-def predict_coins(image_array):
+def predict_coins(image_array, min_radius, circularity_thresh, conf_thresh):
     src = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (7, 7), 2, 2)
     _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    th = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    th_inv = cv2.bitwise_not(th)
+    # 정방향 + 역방향 이진화를 합쳐서 검정/흰 배경 모두 대응
+    th_combined = cv2.bitwise_or(th, th_inv)
+    th_open = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    th_inv_open = cv2.morphologyEx(th_inv, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
-    circles = detect_coin_circles(th)
+    circles_fwd = detect_coin_circles(th_open, min_radius, circularity_thresh)
+    circles_inv = detect_coin_circles(th_inv_open, min_radius, circularity_thresh)
+
+    # 두 방향에서 검출된 원을 합치고 중복 제거 (중심 거리 기준)
+    all_circles = list(circles_fwd)
+    for c2 in circles_inv:
+        cx2, cy2 = c2[0]
+        is_dup = any(
+            ((cx2 - c1[0][0])**2 + (cy2 - c1[0][1])**2) < (c1[1] * 0.7)**2
+            for c1 in all_circles
+        )
+        if not is_dup:
+            all_circles.append(c2)
+
+    circles = sorted(all_circles, key=lambda x: (x[0][0], x[0][1]))
+
     if not circles:
         return image_array, [], 0.0, 0
 
@@ -113,7 +132,6 @@ def predict_coins(image_array):
         coin_imgs.append(coin)
 
     preds = model.predict(coin_imgs, imgsz=224, verbose=False)
-    CONF_THRESH = 0.4
     result_img = src.copy()
     total_krw = 0.0
     unknown_count = 0
@@ -126,8 +144,8 @@ def predict_coins(image_array):
         conf = float(pred.probs.top1conf)
         cx, cy = int(center[0]), int(center[1])
 
-        if conf < CONF_THRESH:
-            short_name = "알수없음"
+        if conf < conf_thresh:
+            short_name = "?"
             krw_val = 0.0
             unknown_count += 1
             color = (0, 0, 255)
@@ -144,8 +162,9 @@ def predict_coins(image_array):
             })
 
         cv2.circle(result_img, (cx, cy), radius, color, 3)
-        cv2.putText(result_img, short_name, (cx - radius, cy - radius - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+        label = f"{short_name} ({conf:.0%})"
+        cv2.putText(result_img, label, (cx - radius, cy - radius - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
 
     result_img_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
     return result_img_rgb, coin_results, total_krw, unknown_count
@@ -156,18 +175,41 @@ st.title("🪙 AI 글로벌 동전 분류기 (YOLOv8)")
 st.markdown("동전 사진을 업로드하면 AI가 전세계 **211종** 통화를 자동 분류하고 **한화 기준 총액**을 계산합니다.")
 st.divider()
 
+# ─── 사이드바: 감지 파라미터 슬라이더 ────────────────────────────────────────
+with st.sidebar:
+    st.header("⚙️ 감지 파라미터 조절")
+    st.markdown("인식이 잘 안 될 때 아래 값을 조정해보세요.")
+    st.divider()
+
+    min_radius = st.slider(
+        "최소 반지름 (px)",
+        min_value=10, max_value=80, value=25, step=5,
+        help="작은 동전 감지가 안 될 때 값을 낮추세요."
+    )
+    circularity = st.slider(
+        "원형도 임계치",
+        min_value=0.3, max_value=0.95, value=0.60, step=0.05,
+        help="노이즈가 동전으로 잡힐 때 값을 높이고, 동전이 안 잡힐 때 낮추세요."
+    )
+    conf_thresh = st.slider(
+        "분류 신뢰도 임계치",
+        min_value=0.1, max_value=0.9, value=0.30, step=0.05,
+        help="빨간 원이 너무 많을 때 높이고, 초록 원이 너무 없을 때 낮추세요."
+    )
+    st.divider()
+    st.caption("🟢 초록 원 = 정상 인식\n🔴 빨간 원 = 신뢰도 미달")
+
 # 모델 로드 확인
 if model is None:
-    st.error("❗ 'best.pt' 모델 파일을 찾을 수 없습니다. 먼저 모델을 학습하거나 파일을 배치해 주세요.")
+    st.error("❗ 'best.pt' 모델 파일을 찾을 수 없습니다.")
     st.stop()
 
 col_left, col_right = st.columns(2)
 
 with col_left:
     uploaded = st.file_uploader("동전 이미지 업로드", type=["jpg", "jpeg", "png", "webp"])
-    
+
     if uploaded:
-        # 파일 → numpy 배열
         file_bytes = np.frombuffer(uploaded.read(), np.uint8)
         img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
@@ -177,9 +219,10 @@ with col_left:
 
         if run_btn:
             with st.spinner("AI가 동전을 분석 중입니다..."):
-                result_img, coin_results, total_krw, unknown_count = predict_coins(img_rgb)
+                result_img, coin_results, total_krw, unknown_count = predict_coins(
+                    img_rgb, min_radius, circularity, conf_thresh
+                )
 
-            # ── 한화 총액 크게 표시 (버튼 바로 아래)
             st.markdown(
                 f"""
                 <div style="
@@ -198,11 +241,10 @@ with col_left:
 
 with col_right:
     if uploaded and 'result_img' in dir():
-        st.image(result_img, caption="분석 결과 이미지 (초록=인식, 빨강=불인식)", use_container_width=True)
+        st.image(result_img, caption="분석 결과 이미지 (초록=인식, 빨강=미달)", use_container_width=True)
 
         st.markdown("#### 🪙 분류 결과 상세")
         if coin_results:
-            # 동전별 상세 테이블
             rows = []
             counts = Counter(r["name"] for r in coin_results)
             seen = set()
@@ -222,4 +264,4 @@ with col_right:
             st.table(rows)
 
         if unknown_count > 0:
-            st.warning(f"⚠️ 신뢰도 미달로 인식 불가 동전: {unknown_count}개 (총액 미포함)")
+            st.warning(f"⚠️ 신뢰도 미달 동전: {unknown_count}개 (총액 미포함)")
