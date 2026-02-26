@@ -21,29 +21,32 @@
 
 ---
 
-## 🛠 직접 모델을 학습하고 싶은 경우 (Google Colab)
+## 📂 주요 코드 및 파일 구조
 
-웹 서비스가 아닌, 이 모델을 직접 학습해보고 싶거나 Colab 코드를 살펴보고 싶다면 아래 가이드를 참고하세요.
-
-<a href="https://colab.research.google.com/github/wqhekjbwdsaq123/ML_pr/tree/main/coins/동전분류기.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
-
-1. 위쪽의 **Open In Colab** 배지를 클릭하여 노트북을 엽니다.
-2. Colab 환경에서 `런타임 > 런타임 유형 변경` 메뉴를 클릭하고 **T4 GPU**를 선택합니다.
-3. 데이터 및 학습된 모델(가중치)은 사용자의 Google Drive에 저장하여 불러오게 설정되어 있습니다. 
-   - `MyDrive/coins/data` 위치에 Kaggle 데이터셋을 압축 해제해 주세요.
-     *(Kaggle 데이터셋: [coin-images by wanderdust](https://www.kaggle.com/datasets/wanderdust/coin-images))*
-   - 테스트할 이미지는 `MyDrive/coins/test_scene.jpg`에 넣어주세요.
-4. 노트북의 모든 셀을 순서대로 실행합니다 (`Ctrl + F9`). 실행 중 Google Drive 연동을 허용해야 합니다.
-
-## 💻 로컬 환경 실행
-로컬 환경에서 코드를 실행하려면 파이썬 의존성을 설치해야 합니다.
-```bash
-pip install -r requirements.txt
-python app.py  # (Gradio 기반 UI)
-# 또는
-streamlit run streamlit_app.py  # (Streamlit 기반 UI)
+```text
+coins/
+├── streamlit_app.py     # Streamlit Cloud 배포용 메인 웹 애플리케이션 (추천)
+├── app.py               # Gradio 기반 로컬/웹 UI 애플리케이션
+├── best.pt              # 학습이 완료된 YOLOv8 모델 가중치 파일
+├── cat_to_name.json     # 211종 국가별 동전 통화 및 환율 계산을 위한 라벨 데이터
+├── requirements.txt     # Python 패키지 의존성 목록
+├── packages.txt         # Streamlit Cloud 리눅스 환경을 위한 시스템 패키지 목록 (libGL 등)
+└── 동전분류기.ipynb        # 데이터 전처리 및 YOLO 모델 학습을 위한 Jupyter Notebook
 ```
-> 로컬 실행 시 상단의 경로 설정(`CONFIG`)에서 모델 및 데이터 경로를 환경에 맞게 수정해 주세요.
+
+- **`streamlit_app.py`**: 현재 배포된 웹 서비스의 핵심 코드입니다. 이미지 업로드, 동전 영역 검출, YOLO 추론, 금액 환산 등의 파이프라인이 구현되어 있습니다.
+- **`best.pt`**: 모델이 어떻게 동전을 인식할지 기준이 되는 지식 파일입니다.
+
+## 💻 로컬 환경 직접 실행
+Python 환경이 구축된 로컬 PC에서 직접 앱을 구동하려면 아래 명령어를 사용하세요.
+```bash
+# 1. 의존성 설치
+pip install -r requirements.txt
+
+# 2. 웹 앱 실행
+streamlit run streamlit_app.py
+```
+> 실행 시 자동으로 브라우저가 열리며 `http://localhost:8501`에서 이용할 수 있습니다.
 
 ## 📚 사용된 오픈소스 및 기술
 - Web Framework: **Streamlit**, **Gradio**
