@@ -196,16 +196,28 @@ def predict_coins(image):
     result_text += "\n" + "─" * 30 + "\n"
     if unknown_count > 0:
         result_text += f"⚠️  인식 불가 동전: {unknown_count}개\n"
-    result_text += f"💰 한화 기준 총액: {total_krw:,.0f} 원\n"
     result_text += "  (※ 환율은 2026년 2월 기준 근사치입니다)"
         
     result_img_rgb = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
-    return result_img_rgb, result_text
+    # 한화 총액을 별도 Markdown 문자열로 반환
+    total_md = f"💰 한화 기준 총액: **{total_krw:,.0f} 원**"
+    return result_img_rgb, result_text, total_md
 
 # --- Gradio UI ---
 custom_css = """
 .gradio-container {
     font-family: 'Pretendard', 'Noto Sans KR', sans-serif;
+}
+.total-krw {
+    font-size: 2.2em;
+    font-weight: 800;
+    color: #1a6bcc;
+    text-align: center;
+    padding: 16px;
+    background: #eef4ff;
+    border-radius: 12px;
+    border: 2px solid #b3d0f5;
+    margin-top: 8px;
 }
 """
 
@@ -217,12 +229,16 @@ with gr.Blocks(title="AI 글로벌 동전 분류기") as demo:
         with gr.Column():
             input_image = gr.Image(type="numpy", label="동전 이미지 업로드")
             submit_btn = gr.Button("🔍 분류 시작", variant="primary", size="lg")
+            total_display = gr.Markdown(
+                value="💰 한화 기준 총액",
+                elem_classes=["total-krw"]
+            )
             
         with gr.Column():
             output_image = gr.Image(type="numpy", label="분석 결과 이미지 (라벨 표시)")
-            output_text = gr.Textbox(label="분류 결과 및 한화 총액", lines=12)
+            output_text = gr.Textbox(label="분류 결과 상세", lines=12)
             
-    submit_btn.click(fn=predict_coins, inputs=input_image, outputs=[output_image, output_text])
+    submit_btn.click(fn=predict_coins, inputs=input_image, outputs=[output_image, output_text, total_display])
     
     gr.Markdown("### 테스트 예시 이미지")
     gr.Examples(
