@@ -1,5 +1,7 @@
 # 자동 동전 분류기 (Coin Classifier)
 
+🌐 **서비스 링크:** [https://d25tbzepfgpjyjvislpua3.streamlit.app/](https://d25tbzepfgpjyjvislpua3.streamlit.app/)
+
 <a href="https://colab.research.google.com/github/YOUR_USERNAME/YOUR_REPOSITORY/blob/main/동전분류기.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 카메라로 찍은 이미지에서 동전을 인식하여 어떤 나라의 동전인지 분류하고, 원화 기준 총액을 계산하는 AI 프로젝트입니다. YOLOv8 객체 인식 모델을 기반으로 학습되었습니다.
