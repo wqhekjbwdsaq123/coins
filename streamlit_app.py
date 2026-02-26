@@ -13,19 +13,25 @@ st.set_page_config(
     layout="wide",
 )
 
+# ─── 스크립트 기준 절대 경로 (Streamlit Cloud 호환) ─────────────────────────
+_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ─── 모델 및 데이터 로드 (캐싱으로 최초 1회만 실행) ──────────────────────────
 @st.cache_resource
 def load_model():
-    if os.path.exists("best.pt"):
-        return YOLO("best.pt")
+    model_path = os.path.join(_DIR, "best.pt")
+    if os.path.exists(model_path):
+        return YOLO(model_path)
     return None
 
 @st.cache_data
 def load_cat_to_name():
+    json_path = os.path.join(_DIR, "cat_to_name.json")
     try:
-        with open("cat_to_name.json", "r", encoding="utf-8") as f:
+        with open(json_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        st.warning(f"cat_to_name.json 로드 실패: {e}")
         return {}
 
 model = load_model()
