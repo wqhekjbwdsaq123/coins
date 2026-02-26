@@ -84,10 +84,25 @@ def coin_to_krw(class_str_id: str) -> float:
     return face_value * rate
 
 # 모폴로지 연산 및 전처리를 통해 동전 후보 윤곽을 찾는 함수
-def detect_coin_circles(th: np.ndarray, min_radius: int = 25):
+def detect_coin_circles(th: np.ndarray, min_radius: int = 35, circularity_thresh: float = 0.7):
+    """
+    circularity = 4π × area / perimeter²
+    완전한 원 = 1.0 / 정사각형 ≈ 0.785 / 불규칙한 노이즈 = 낮은값
+    circularity_thresh 이상인 윤곽만 동전으로 인정
+    """
     contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    circles = [cv2.minEnclosingCircle(c) for c in contours]
-    circles = [(center, int(radius)) for center, radius in circles if radius > min_radius]
+    circles = []
+    for c in contours:
+        area = cv2.contourArea(c)
+        perimeter = cv2.arcLength(c, True)
+        if perimeter == 0:
+            continue
+        circularity = 4 * np.pi * area / (perimeter ** 2)
+        (cx, cy), radius = cv2.minEnclosingCircle(c)
+        radius = int(radius)
+        # 반지름 및 원형도 기준 필터링
+        if radius > min_radius and circularity >= circularity_thresh:
+            circles.append(((cx, cy), radius))
     circles.sort(key=lambda x: (x[0][0], x[0][1]))
     return circles
 
@@ -109,11 +124,11 @@ def predict_coins(image):
     _, th = cv2.threshold(gray, 0, 255, flag)
     th = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     
-    # [2] 동전 윤곽 원 탐지
-    circles = detect_coin_circles(th, min_radius=25)
+    # [2] 동전 윤곽 원 탐지 (원형도 필터 포함)
+    circles = detect_coin_circles(th, min_radius=35, circularity_thresh=0.7)
     
     if not circles:
-        return image, "동전이 감지되지 않았습니다."
+        return image, "동전이 감지되지 않았습니다.\n(이미지가 너무 흐리거나 동전이 서로 겹쳐 있으면 감지가 어려울 수 있습니다)"
         
     # [3] 각각의 동전을 이미지에서 잘라내기
     coin_imgs = []
@@ -137,29 +152,32 @@ def predict_coins(image):
     unknown_count = 0
     
     # [5] 예측 결과를 원본 이미지 위에 그리기 및 집계
+    CONF_THRESH = 0.4  # 신뢰도 임계치 상향 (0.2 → 0.4)
     for pred, (center, radius) in zip(preds, circles):
         cls_id = int(pred.probs.top1)
         class_str_id = model.names[cls_id]
         readable_name = cat_to_name.get(class_str_id, f"Class {class_str_id}")
         conf = float(pred.probs.top1conf)
         
-        if conf < 0.2:
+        if conf < CONF_THRESH:
             readable_name = "Unknown"
             short_name = "알수없음"
             unknown_count += 1
+            circle_color = (0, 0, 255)   # 빨간 원 = 신뢰도 낮음
         else:
             short_name = readable_name.split(",")[0] if "," in readable_name else readable_name
             krw_val = coin_to_krw(class_str_id)
             total_krw += krw_val
             krw_per_class[readable_name] = krw_val
+            circle_color = (0, 255, 0)   # 초록 원 = 정상 인식
             
         counts[readable_name] += 1
         
         # 이미지에 동전 원과 분류 결과 표기
         cx, cy = int(center[0]), int(center[1])
-        cv2.circle(result_img, (cx, cy), radius, (0, 255, 0), 3)
+        cv2.circle(result_img, (cx, cy), radius, circle_color, 3)
         cv2.putText(result_img, short_name, (cx - radius, cy - radius - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, circle_color, 2)
         
     # [6] 텍스트 요약 메시지 생성
     result_text = "🪙 검출된 동전 요약:\n\n"
